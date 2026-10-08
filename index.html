@@ -1,44 +1,190 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Video Share</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0f; color: #eee;
+    font-family: 'Segoe UI', sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    background: #111; border-bottom: 2px solid #ff0055;
+    padding: 14px 24px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { color: #ff0055; font-size: 20px; letter-spacing: 2px; text-shadow: 0 0 10px #ff0055; }
+  header a {
+    color: #ff0055; text-decoration: none; font-size: 13px;
+    border: 1px solid #ff0055; padding: 8px 14px; border-radius: 6px;
+    transition: 0.2s;
+  }
+  header a:hover { background: rgba(255,0,85,0.15); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+  .card {
+    background: #15151c; border: 1px solid #222; border-radius: 10px;
+    overflow: hidden; cursor: pointer; transition: 0.2s;
+  }
+  .card:hover { border-color: #ff0055; transform: translateY(-3px); box-shadow: 0 6px 20px rgba(255,0,85,0.3); }
+  .card .thumb {
+    width: 100%; aspect-ratio: 16/9; background: #000;
+    display: flex; align-items: center; justify-content: center;
+    color: #ff0055; font-size: 40px;
+  }
+  .card .info { padding: 12px; }
+  .card .info h4 { font-size: 14px; margin-bottom: 6px; }
+  .card .info .meta { font-size: 11px; color: #888; display: flex; justify-content: space-between; }
+
+  #playerModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.95);
+    display: none; z-index: 9500; padding: 20px; overflow-y: auto;
+  }
+  #playerModal .inner {
+    max-width: 900px; margin: 0 auto;
+    background: #111; border: 1px solid #ff0055;
+    border-radius: 12px; padding: 20px;
+  }
+  #playerModal video { width: 100%; border-radius: 8px; background: #000; }
+  #playerModal h3 { color: #ff0055; margin: 14px 0 8px; }
+  #playerModal .desc { color: #aaa; font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; }
+  #playerModal button {
+    background: #ff0055; color: #fff; border: none;
+    padding: 10px 20px; border-radius: 6px; cursor: pointer;
+    font-weight: bold; font-size: 13px;
+  }
+  .empty { text-align: center; color: #666; padding: 60px 20px; }
+  .loading { text-align: center; color: #ff0055; padding: 40px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ GITHUB VIDSHARE</h1>
+  <a id="uploadLink" href="#" target="_blank">➕ Đăng video</a>
+</header>
+
+<div class="container">
+  <div class="loading" id="loading">Đang tải video...</div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">Chưa có video nào.</div>
+</div>
+
+<div id="playerModal">
+  <div class="inner">
+    <video id="playerVideo" controls playsinline></video>
+    <h3 id="playerTitle"></h3>
+    <div class="desc" id="playerDesc"></div>
+    <button id="closePlayer">Đóng</button>
+  </div>
+</div>
+
 <script>
-const GITHUB_USER = 'YOUR_USERNAME';
-const GITHUB_REPO = 'YOUR_REPO';
+(() => {
+  'use strict';
 
-async function loadReleases() {
-  const res = await fetch(
-    `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases?per_page=50`
+  // ========== CẤU HÌNH ==========
+  const GITHUB_USER = 'YOUR_USERNAME';
+  const GITHUB_REPO = 'YOUR_REPO';
+  const LABEL = 'video';   // chỉ lấy issue có label này
+  // =============================
+
+  const $ = id => document.getElementById(id);
+
+  // Link đăng video = tạo issue mới với template
+  const issueTemplate = encodeURIComponent(
+    '**Link video (mp4/webm):**\nhttps://...\n\n' +
+    '**Mô tả:**\nViết mô tả ở đây...\n'
   );
-  const releases = await res.json();
+  $('uploadLink').href =
+    `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/issues/new` +
+    `?labels=${LABEL}&title=${encodeURIComponent('[VIDEO] Tên video')}&body=${issueTemplate}`;
 
-  const grid = document.getElementById('grid');
-  grid.innerHTML = '';
+  // ========== LOAD ISSUES ==========
+  async function loadVideos() {
+    try {
+      const url = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/issues` +
+                  `?labels=${LABEL}&state=open&per_page=50&sort=created&direction=desc`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('GitHub API: ' + res.status);
+      const issues = await res.json();
 
-  releases.forEach(rel => {
-    const videoAsset = rel.assets.find(a =>
-      /\.(mp4|webm|mov|m3u8)$/i.test(a.name)
-    );
-    if (!videoAsset) return;
+      $('loading').style.display = 'none';
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <div class="info">
-        <h4>${escapeHtml(rel.name || rel.tag_name)}</h4>
-        <div class="meta">${escapeHtml(rel.body || '').slice(0, 80)}</div>
-      </div>
-    `;
-    card.addEventListener('click', () => {
-      document.getElementById('playerVideo').src = videoAsset.browser_download_url;
-      document.getElementById('playerTitle').textContent = rel.name || rel.tag_name;
-      document.getElementById('playerModal').style.display = 'block';
-    });
-    grid.appendChild(card);
+      if (!issues.length) {
+        $('empty').style.display = 'block';
+        return;
+      }
+
+      const grid = $('grid');
+      grid.innerHTML = '';
+
+      issues.forEach(issue => {
+        // tìm URL video trong body (mp4/webm/m3u8)
+        const match = issue.body?.match(/https?:\/\/\S+\.(mp4|webm|m3u8|mov)/i);
+        const videoUrl = match ? match[0] : null;
+
+        // tìm ảnh thumbnail
+        const thumbMatch = issue.body?.match(/https?:\/\/\S+\.(jpg|jpeg|png|webp|gif)/i);
+        const thumbUrl = thumbMatch ? thumbMatch[0] : null;
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="thumb" ${thumbUrl ? `style="background-image:url('${thumbUrl}');background-size:cover;background-position:center"` : ''}>
+            ${thumbUrl ? '' : '🎬'}
+          </div>
+          <div class="info">
+            <h4>${escapeHtml(issue.title.replace(/^\[VIDEO\]\s*/i, ''))}</h4>
+            <div class="meta">
+              <span>${escapeHtml(issue.user.login)}</span>
+              <span>💬 ${issue.comments}</span>
+            </div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          if (!videoUrl) return alert('Issue này không có link video hợp lệ.');
+          openPlayer(issue.title, issue.body, videoUrl, issue.html_url);
+        });
+
+        grid.appendChild(card);
+      });
+
+    } catch (e) {
+      $('loading').textContent = '❌ Lỗi: ' + e.message;
+      $('loading').style.color = '#f44';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+
+  function openPlayer(title, body, videoUrl, issueUrl) {
+    $('playerVideo').src = videoUrl;
+    $('playerTitle').textContent = title.replace(/^\[VIDEO\]\s*/i, '');
+    // bỏ URL video khỏi mô tả
+    const cleanDesc = (body || '').replace(videoUrl, '').replace(/\*\*/g, '').trim();
+    $('playerDesc').textContent = cleanDesc + `\n\n🔗 Issue gốc: ${issueUrl}`;
+    $('playerModal').style.display = 'block';
+    $('playerVideo').play().catch(() => {});
+  }
+
+  $('closePlayer').addEventListener('click', () => {
+    $('playerVideo').pause();
+    $('playerVideo').src = '';
+    $('playerModal').style.display = 'none';
   });
-}
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  })[c]);
-}
-
-loadReleases();
+  loadVideos();
+})();
 </script>
+</body>
+</html>
